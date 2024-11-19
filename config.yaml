@@ -1,0 +1,22 @@
+# Do hyperparameter setting here
+# Configuration file with updated hyperparameters
+vit_linear:
+    lr: 0.001
+    wd: 0.01
+    epochs: 100
+    optimizer: 'sgd'
+    scheduler: 'multi_step'
+    momentum: 0.99
+    net_class: 'ViTLinear'
+    batch_size: 32
+
+vpt_deep:
+    net_class: 'VPTDeep'
+    lr: 0.01
+    wd: 0.01
+    epochs: 100
+    optimizer: 'sgd'
+    scheduler: 'multi_step'
+    momentum: 0.9
+    batch_size: 32
+    num_prompts: 10
