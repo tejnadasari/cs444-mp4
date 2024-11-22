@@ -124,13 +124,13 @@ class Trainer():
         if isinstance(model, VPTDeep):
             # Only optimize prompts and classification head
             params = list(model.prompts.parameters()) + list(model.vit.heads.parameters())
-            self.optimizer = torch.optim.SGD(params, lr=0.01,
-                                             weight_decay=0.01,
+            self.optimizer = torch.optim.SGD(params, lr=.01,
+                                             weight_decay=.01,
                                              momentum=.9)
         else:
             self.optimizer = torch.optim.SGD(model.parameters(),
-                                             lr=0.01, weight_decay=0.01,
-                                             momentum=.9)
+                                             lr=lr, weight_decay=wd,
+                                             momentum=momentum)
 
         if scheduler == 'multi_step':
             self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
