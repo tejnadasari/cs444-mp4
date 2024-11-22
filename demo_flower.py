@@ -2,13 +2,13 @@ import torch
 from absl import app, flags
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
-from finetune import ViTLinear, VPTDeep, inference, Trainer  # Add VPTDeep import
+from finetune import ViTLinear, VPTDeep, inference, Trainer
 import yaml
 
 from datasets import get_flower102
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('exp_name', 'vit_linear',
+flags.DEFINE_string('exp_name', 'vpt_deep',  # Changed default to vpt_deep
                     'The experiment with corresponding hyperparameters to run. See config.yaml')
 flags.DEFINE_string('output_dir', 'run1', 'Output Directory')
 flags.DEFINE_string('encoder', 'vit_b_32',
@@ -19,10 +19,9 @@ flags.DEFINE_string('data_dir', './flower-dataset-reduced', 'Directory with coco
 def get_config(exp_name, encoder):
     dir_name = f'{FLAGS.output_dir}/runs-{encoder}-flower102/demo-{exp_name}'
 
-    # Add VPTDeep to encoder registry
     encoder_registry = {
         'ViTLinear': ViTLinear,
-        'VPTDeep': VPTDeep,  # Add this line
+        'VPTDeep': VPTDeep,
     }
 
     with open("config.yaml", "r") as f:
@@ -63,23 +62,17 @@ def main(_):
 
     tmp_file_name = dir_name + '/best_model.pth'
     device = torch.device('cuda:0')
-    # For Mac Users
-    # device = torch.device('mps')
 
     writer = SummaryWriter(f'{dir_name}/lr{lr:0.6f}_wd{wd:0.6f}', flush_secs=10)
 
-    # Initialize model based on exp_name
-    if FLAGS.exp_name == 'vpt_deep':
-        model = net_class(102, FLAGS.encoder, num_prompts=num_prompts)
-    else:
-        model = net_class(102, FLAGS.encoder)
-
+    # Initialize VPTDeep model
+    model = VPTDeep(n_classes=102, encoder_name=FLAGS.encoder, num_prompts=num_prompts)
     model.to(device)
 
     trainer = Trainer(model, train_dataloader, val_dataloader, writer,
-                      optimizer=optimizer, lr=lr, wd=wd, momentum=momentum,
-                      scheduler=scheduler, epochs=epochs,
-                      device=device)
+                     optimizer=optimizer, lr=lr, wd=wd, momentum=momentum,
+                     scheduler=scheduler, epochs=epochs,
+                     device=device)
 
     best_val_acc, best_epoch = trainer.train(model_file_name=tmp_file_name)
     print(f"lr: {lr:0.7f}, wd: {wd:0.7f}, best_val_acc: {best_val_acc}, best_epoch: {best_epoch}")

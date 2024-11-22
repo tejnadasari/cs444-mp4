@@ -35,37 +35,46 @@ class ViTLinear(nn.Module):
 
 
 class VPTDeep(nn.Module):
-    def __init__(self, n_classes, encoder_name, num_prompts=3):  # Reduced prompts
+    def __init__(self, n_classes, encoder_name, num_prompts=10):
         super(VPTDeep, self).__init__()
 
+        # Get pretrained ViT
         self.vit = get_encoder(encoder_name)
 
+        # Freeze backbone parameters
         for param in self.vit.parameters():
             param.requires_grad = False
 
+        # Initialize prompts with proper initialization
         num_layers = len(self.vit.encoder.layers)
-        hidden_dim = 768
-        v = np.sqrt(3.0 / float(hidden_dim + num_prompts))
+        hidden_dim = 768  # ViT-B hidden dimension
+        prompt_dim = num_prompts * hidden_dim
+        # Initialize using suggested formula v^2 = 6/(hidden_dim + prompt_dim)
+        v = np.sqrt(6.0 / (hidden_dim + prompt_dim))
 
+        # Create learnable prompts
         self.prompts = nn.Parameter(
             torch.empty(1, num_layers, num_prompts, hidden_dim).uniform_(-v, v)
         )
 
-        self.prompt_dropout = nn.Dropout(0.3)  # Increased dropout
+        # Replace classification head
         self.vit.heads = nn.Linear(hidden_dim, n_classes)
 
+        # Initialize the new classification head
         nn.init.zeros_(self.vit.heads.weight)
         nn.init.zeros_(self.vit.heads.bias)
 
     def forward(self, x):
+        # Process input and add CLS token
         x = self.vit._process_input(x)
         n = x.shape[0]
         batch_class_token = self.vit.class_token.expand(n, -1, -1)
         x = torch.cat([batch_class_token, x], dim=1)
 
-        prompts = self.prompt_dropout(self.prompts) if self.training else self.prompts
-        x = self.vit.encoder(x, prompts)
+        # Forward through encoder with prompts
+        x = self.vit.encoder(x, self.prompts)
 
+        # Take CLS token and classify
         x = x[:, 0]
         x = self.vit.heads(x)
         return x
@@ -122,17 +131,17 @@ class Trainer():
             # Only optimize prompts and classification head
             params = list(model.prompts.parameters()) + list(model.vit.heads.parameters())
             self.optimizer = torch.optim.SGD(params,
-                                             lr=0.003,  # Lower learning rate
-                                             weight_decay=0.1,  # Higher weight decay
+                                             lr=0.01,  # Suggested learning rate
+                                             weight_decay=0.01,  # Suggested weight decay
                                              momentum=0.9)
 
             if scheduler == 'multi_step':
+                # Learning rate drops at epochs 60 and 80
                 self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
-                    self.optimizer, milestones=[30, 60, 80], gamma=0.2)
+                    self.optimizer, milestones=[60, 80], gamma=0.1)
         else:
             self.optimizer = torch.optim.SGD(model.parameters(),
-                                             lr=lr,
-                                             weight_decay=wd,
+                                             lr=lr, weight_decay=wd,
                                              momentum=momentum)
             if scheduler == 'multi_step':
                 self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(

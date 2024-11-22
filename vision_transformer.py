@@ -159,7 +159,6 @@ class Encoder(nn.Module):
 
         return self.ln(x)
 
-
 class VisionTransformer(nn.Module):
     """Vision Transformer as per https://arxiv.org/abs/2010.11929."""
 
