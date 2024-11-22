@@ -128,9 +128,8 @@ class Encoder(nn.Module):
         super().__init__()
         self.pos_embedding = nn.Parameter(torch.empty(1, seq_length, hidden_dim).normal_(std=0.02))
         self.dropout = nn.Dropout(dropout)
-        layers: OrderedDict[str, nn.Module] = OrderedDict()
-        for i in range(num_layers):
-            layers[f"encoder_layer_{i}"] = EncoderBlock(
+        self.layers = nn.ModuleDict({
+            f"encoder_layer_{i}": EncoderBlock(
                 num_heads,
                 hidden_dim,
                 mlp_dim,
@@ -138,7 +137,8 @@ class Encoder(nn.Module):
                 attention_dropout,
                 norm_layer,
             )
-        self.layers = nn.ModuleList(list(layers.values()))
+            for i in range(num_layers)
+        })
         self.ln = norm_layer(hidden_dim)
 
     def forward(self, input: torch.Tensor, prompts=None):
@@ -148,14 +148,13 @@ class Encoder(nn.Module):
         x = self.dropout(input)
 
         if prompts is not None:
-            for i, layer in enumerate(self.layers):
-                # Insert prompts after CLS token
+            for i, (name, layer) in enumerate(self.layers.items()):
                 B = x.shape[0]
                 current_prompt = prompts[:, i].expand(B, -1, -1)
                 x_with_prompt = torch.cat([x[:, :1], current_prompt, x[:, 1:]], dim=1)
                 x = layer(x_with_prompt)
         else:
-            for layer in self.layers:
+            for layer in self.layers.values():
                 x = layer(x)
 
         return self.ln(x)
