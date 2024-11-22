@@ -11,12 +11,12 @@ vit_linear:
     batch_size: 32
 
 vpt_deep:
-    net_class: 'VPTDeep'
-    lr: 0.01
-    wd: 0.01
-    epochs: 80
-    optimizer: 'sgd'
-    scheduler: 'multi_step'
-    momentum: 0.9
-    batch_size: 32
-    num_prompts: 10
+  net_class: 'VPTDeep'
+  lr: 0.01
+  wd: 0.01
+  momentum: 0.9
+  optimizer: 'sgd'
+  scheduler: 'multi_step'
+  epochs: 100
+  batch_size: 32
+  num_prompts: 10

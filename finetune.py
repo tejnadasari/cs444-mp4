@@ -129,14 +129,17 @@ class Trainer():
         # Modified optimizer setup for VPT
         if isinstance(model, VPTDeep):
             # Only optimize prompts and classification head
-            params = list(model.prompts.parameters()) + list(model.vit.heads.parameters())
+            # Fixed: Correctly access parameters
+            prompts_param = [model.prompts]  # The prompt parameter itself
+            head_params = model.vit.heads.parameters()  # Parameters of the classification head
+            params = prompts_param + list(head_params)
+
             self.optimizer = torch.optim.SGD(params,
                                              lr=0.01,  # Suggested learning rate
                                              weight_decay=0.01,  # Suggested weight decay
                                              momentum=0.9)
 
             if scheduler == 'multi_step':
-                # Learning rate drops at epochs 60 and 80
                 self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
                     self.optimizer, milestones=[60, 80], gamma=0.1)
         else:
