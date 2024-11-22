@@ -35,7 +35,7 @@ class ViTLinear(nn.Module):
 
 
 class VPTDeep(nn.Module):
-    def __init__(self, n_classes, encoder_name, num_prompts=5):  # Even fewer prompts
+    def __init__(self, n_classes, encoder_name, num_prompts=3):  # Reduced prompts
         super(VPTDeep, self).__init__()
 
         self.vit = get_encoder(encoder_name)
@@ -45,13 +45,13 @@ class VPTDeep(nn.Module):
 
         num_layers = len(self.vit.encoder.layers)
         hidden_dim = 768
-        v = np.sqrt(3.0 / float(hidden_dim + num_prompts))  # Reduced scale
+        v = np.sqrt(3.0 / float(hidden_dim + num_prompts))
 
         self.prompts = nn.Parameter(
             torch.empty(1, num_layers, num_prompts, hidden_dim).uniform_(-v, v)
         )
 
-        self.prompt_dropout = nn.Dropout(0.2)  # Increased dropout
+        self.prompt_dropout = nn.Dropout(0.3)  # Increased dropout
         self.vit.heads = nn.Linear(hidden_dim, n_classes)
 
         nn.init.zeros_(self.vit.heads.weight)
@@ -63,7 +63,6 @@ class VPTDeep(nn.Module):
         batch_class_token = self.vit.class_token.expand(n, -1, -1)
         x = torch.cat([batch_class_token, x], dim=1)
 
-        # Apply dropout to prompts during training
         prompts = self.prompt_dropout(self.prompts) if self.training else self.prompts
         x = self.vit.encoder(x, prompts)
 
@@ -120,19 +119,24 @@ class Trainer():
 
         # Modified optimizer setup for VPT
         if isinstance(model, VPTDeep):
+            # Only optimize prompts and classification head
             params = list(model.prompts.parameters()) + list(model.vit.heads.parameters())
             self.optimizer = torch.optim.SGD(params,
-                                             lr=0.005,  # Lower learning rate
-                                             weight_decay=0.05,  # Higher weight decay
+                                             lr=0.003,  # Lower learning rate
+                                             weight_decay=0.1,  # Higher weight decay
                                              momentum=0.9)
+
+            if scheduler == 'multi_step':
+                self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
+                    self.optimizer, milestones=[30, 60, 80], gamma=0.2)
         else:
             self.optimizer = torch.optim.SGD(model.parameters(),
-                                             lr=lr, weight_decay=wd,
+                                             lr=lr,
+                                             weight_decay=wd,
                                              momentum=momentum)
-
-        if scheduler == 'multi_step':
-            self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
-                self.optimizer, milestones=[30, 60, 80], gamma=0.2)  # More frequent drops
+            if scheduler == 'multi_step':
+                self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
+                    self.optimizer, milestones=[60, 80], gamma=0.1)
 
     def train_epoch(self):
         self.model.train()

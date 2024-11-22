@@ -14,7 +14,7 @@ vpt_deep:
     net_class: 'VPTDeep'
     lr: 0.01
     wd: 0.01
-    epochs: 100
+    epochs: 80
     optimizer: 'sgd'
     scheduler: 'multi_step'
     momentum: 0.9
