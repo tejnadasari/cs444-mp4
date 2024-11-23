@@ -3,6 +3,8 @@ from torch import nn
 import torch
 from vision_transformer import vit_b_32, ViT_B_32_Weights
 from tqdm import tqdm
+import numpy as np
+
 
 def get_encoder(name):
     if name == 'vit_b_32':
@@ -17,6 +19,7 @@ class ViTLinear(nn.Module):
 
         self.vit_b = [get_encoder(encoder_name)]
 
+        # Reinitialize the head with a new layer
         self.vit_b[0].heads[0] = nn.Identity()
         self.linear = nn.Linear(768, n_classes)
 
@@ -32,46 +35,51 @@ class ViTLinear(nn.Module):
 
 
 class VPTDeep(nn.Module):
-    def __init__(self, num_classes, encoder_type, num_prompt_tokens=10):  # Changed to 10 prompts per layer
+    def __init__(self, n_classes, encoder_name, num_prompts=10):
         super(VPTDeep, self).__init__()
 
-        self.encoder = get_encoder(encoder_type)
+        # Get pretrained ViT
+        self.vit = get_encoder(encoder_name)
 
-        for param in self.encoder.parameters():
+        # Freeze backbone parameters
+        for param in self.vit.parameters():
             param.requires_grad = False
 
-        num_encoder_layers = len(self.encoder.encoder.layers)
-        hidden_dim = 768  # ViT hidden dimension
-        prompt_dim = num_prompt_tokens * hidden_dim
-        init_scale = np.sqrt(6.0 / float(hidden_dim + prompt_dim))  # Changed to 6.0 as suggested
+        # Initialize prompts with proper initialization
+        num_layers = len(self.vit.encoder.layers)
+        hidden_dim = 768  # ViT-B hidden dimension
+        prompt_dim = num_prompts * hidden_dim
+        v = np.sqrt(6.0 / float(hidden_dim + prompt_dim))
 
-        self.learnable_prompts = nn.Parameter(
-            torch.empty(1, num_encoder_layers, num_prompt_tokens, hidden_dim).uniform_(-init_scale, init_scale)
+        self.prompts = nn.Parameter(
+            torch.empty(1, num_layers, num_prompts, hidden_dim).uniform_(-v, v)
         )
-        self.prompt_dropout_layer = nn.Dropout(0.1)  # Adjusted dropout rate
-        self.encoder.heads = nn.Linear(768, num_classes)
 
-        nn.init.zeros_(self.encoder.heads.weight)
-        nn.init.zeros_(self.encoder.heads.bias)
+        # Add dropout for regularization
+        self.prompt_dropout = nn.Dropout(0.1)
 
-    def forward(self, input_data):
-        preprocessed_input = self.encoder._process_input(input_data)
-        batch_size = preprocessed_input.shape[0]
+        # Replace classification head
+        self.vit.heads = nn.Linear(hidden_dim, n_classes)
 
-        class_token_batch = self.encoder.class_token.expand(batch_size, -1, -1)
-        input_with_class_token = torch.cat([class_token_batch, preprocessed_input], dim=1)
+        # Initialize the new classification head
+        nn.init.zeros_(self.vit.heads.weight)
+        nn.init.zeros_(self.vit.heads.bias)
 
-        if self.training:
-            prompts_to_use = self.prompt_dropout_layer(self.learnable_prompts)
-        else:
-            prompts_to_use = self.learnable_prompts
+    def forward(self, x):
+        # Process input and add CLS token
+        x = self.vit._process_input(x)
+        n = x.shape[0]
+        batch_class_token = self.vit.class_token.expand(n, -1, -1)
+        x = torch.cat([batch_class_token, x], dim=1)
 
-        encoder_output = self.encoder.encoder(input_with_class_token, prompts_to_use)
+        # Apply dropout to prompts during training
+        prompts = self.prompt_dropout(self.prompts) if self.training else self.prompts
+        x = self.vit.encoder(x, prompts)
 
-        cls_token_representation = encoder_output[:, 0]
-        output_logits = self.encoder.heads(cls_token_representation)
-
-        return output_logits
+        # Take CLS token and classify
+        x = x[:, 0]
+        x = self.vit.heads(x)
+        return x
 
 
 def test(test_loader, model, device):
@@ -121,39 +129,28 @@ class Trainer():
 
         self.model.to(self.device)
 
+        # Modified optimizer setup for VPT
         if isinstance(model, VPTDeep):
-            params_to_optimize = [
-                {'params': model.learnable_prompts},
-                {'params': model.encoder.heads.parameters()}
+            # Correctly handle parameters for VPTDeep
+            trainable_params = [
+                {'params': model.prompts},  # Just the prompt parameter
+                {'params': model.vit.heads.parameters()}  # Classification head parameters
             ]
-            # Updated hyperparameters as per suggestions
-            self.optimizer = torch.optim.SGD(
-                params_to_optimize,
-                lr=0.01,  # Changed from 0.009 to suggested 0.01
-                weight_decay=0.01,  # Changed from 0.025 to suggested 0.01
-                momentum=0.9
-            )
+            self.optimizer = torch.optim.SGD(trainable_params,
+                                             lr=0.01,
+                                             weight_decay=0.01,
+                                             momentum=0.9)
 
             if scheduler == 'multi_step':
-                self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-                    self.optimizer,
-                    milestones=[60, 80],  # Learning rate drops at epochs 60 and 80
-                    gamma=0.1  # Changed to drop by factor of 10 (0.1)
-                )
+                self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
+                    self.optimizer, milestones=[60, 80], gamma=0.1)
         else:
-            self.optimizer = torch.optim.SGD(
-                model.parameters(),
-                lr=lr,
-                weight_decay=wd,
-                momentum=momentum
-            )
-
+            self.optimizer = torch.optim.SGD(model.parameters(),
+                                             lr=lr, weight_decay=wd,
+                                             momentum=momentum)
             if scheduler == 'multi_step':
-                self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-                    self.optimizer,
-                    milestones=[60, 80],
-                    gamma=0.1
-                )
+                self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
+                    self.optimizer, milestones=[60, 80], gamma=0.1)
 
     def train_epoch(self):
         self.model.train()
@@ -192,7 +189,7 @@ class Trainer():
         for epoch in pbar:
             train_loss, train_acc = self.train_epoch()
             val_loss, val_acc = self.val_epoch()
-            self.writer.add_scalar('lr', self.lr_scheduler.get_last_lr()[0], epoch)
+            self.writer.add_scalar('lr', self.lr_schedule.get_last_lr()[0], epoch)
             self.writer.add_scalar('val_acc', val_acc, epoch)
             self.writer.add_scalar('val_loss', val_loss, epoch)
             self.writer.add_scalar('train_acc', train_acc, epoch)
@@ -202,6 +199,6 @@ class Trainer():
                 best_val_acc = val_acc
                 best_epoch = epoch
                 torch.save(self.model.state_dict(), model_file_name)
-            self.lr_scheduler.step()
+            self.lr_schedule.step()
 
         return best_val_acc, best_epoch

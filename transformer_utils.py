@@ -15,14 +15,24 @@ class SelfAttention(nn.Module):
         self.softmax = nn.Softmax(dim=2)
 
     def forward(self, x):
-        queries = self.W_query(x)
-        keys = self.W_key(x)
-        values = self.W_value(x)
+        # 1. Compute query, key and value
+        Q = self.W_query(x)  # (batch, num_tokens, query_dim)
+        K = self.W_key(x)  # (batch, num_tokens, key_dim)
+        V = self.W_value(x)  # (batch, num_tokens, value_dim)
 
-        scaling_factor = torch.sqrt(torch.tensor(self.query_dim, dtype=torch.float32))
-        output = torch.bmm(self.softmax(torch.bmm(queries, keys.transpose(1, 2)) / scaling_factor), values)
+        # 2. Compute scaled dot product
+        # (batch, num_tokens, num_tokens) = (batch, num_tokens, key_dim) @ (batch, key_dim, num_tokens)
+        scale = torch.sqrt(torch.tensor(self.query_dim, dtype=torch.float32))
+        attention_scores = torch.bmm(Q, K.transpose(1, 2)) / scale
 
-        return output
+        # 3. Apply softmax
+        attention_probs = self.softmax(attention_scores)
+
+        # 4. Multiply with value
+        # (batch, num_tokens, value_dim) = (batch, num_tokens, num_tokens) @ (batch, num_tokens, value_dim)
+        attn_output = torch.bmm(attention_probs, V)
+
+        return attn_output
 
 
 class LayerNorm(nn.Module):
@@ -33,12 +43,20 @@ class LayerNorm(nn.Module):
         self.input_dim = input_dim
         self.eps = eps
 
+        # Initialize scale and shift parameters
         self.w = nn.Parameter(torch.ones(input_dim))
         self.b = nn.Parameter(torch.zeros(input_dim))
 
     def forward(self, x: torch.Tensor):
+        """
+        x: Input of shape (batch_size, seq_len, input_dim)
+        Returns: Normalized tensor of shape (batch_size, seq_len, input_dim)
+        """
         assert x.shape[-1] == self.input_dim
 
-        normalized_tensor = (x - (x.mean(dim=-1, keepdim=True))) / torch.sqrt((x.var(dim=-1, keepdim=True, unbiased=True)) + self.eps)
-        return self.w.view(1, 1, -1) * normalized_tensor + self.b.view(1, 1, -1)
+        mean = x.mean(dim=-1, keepdim=True)
+        var = x.var(dim=-1, keepdim=True, unbiased=True)
+        x_norm = (x - mean) / torch.sqrt(var + self.eps)
+        out = self.w.view(1, 1, -1) * x_norm + self.b.view(1, 1, -1)
 
+        return out
