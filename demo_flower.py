@@ -8,7 +8,7 @@ import yaml
 from datasets import get_flower102
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('exp_name', 'vpt_deep',  # Changed default to vpt_deep
+flags.DEFINE_string('exp_name', 'vpt_deep',
                     'The experiment with corresponding hyperparameters to run. See config.yaml')
 flags.DEFINE_string('output_dir', 'run1', 'Output Directory')
 flags.DEFINE_string('encoder', 'vit_b_32',
@@ -36,8 +36,7 @@ def get_config(exp_name, encoder):
     net_class = encoder_registry[config['net_class']]
     batch_size = config['batch_size']
 
-    # Add prompt parameters if using VPTDeep
-    num_prompts = config.get('num_prompts', 10)  # Default to 10 if not specified
+    num_prompts = config.get('num_prompts', 10)
 
     return net_class, dir_name, (optimizer, lr, wd, momentum), (scheduler, epochs), batch_size, num_prompts
 
@@ -49,8 +48,8 @@ def main(_):
     print(f"Running: {FLAGS.exp_name} with encoder {FLAGS.encoder} ------------------")
 
     net_class, dir_name, \
-    (optimizer, lr, wd, momentum), \
-    (scheduler, epochs), batch_size, num_prompts = \
+        (optimizer, lr, wd, momentum), \
+        (scheduler, epochs), batch_size, num_prompts = \
         get_config(FLAGS.exp_name, FLAGS.encoder)
 
     train_data = get_flower102(FLAGS.data_dir, 'train')
@@ -65,7 +64,7 @@ def main(_):
 
     writer = SummaryWriter(f'{dir_name}/lr{lr:0.6f}_wd{wd:0.6f}', flush_secs=10)
 
-    # Initialize VPTDeep model
+
     model = VPTDeep(n_classes=102, encoder_name=FLAGS.encoder, num_prompts=num_prompts)
     model.to(device)
 

@@ -111,9 +111,8 @@ class EncoderBlock(nn.Module):
         return x + y
 
 
-# Note: Most of the file remains the same. Only updating the Encoder class to handle prompts
-
 class Encoder(nn.Module):
+    """Transformer Model Encoder for sequence to sequence translation."""
     def __init__(
             self,
             seq_length: int,

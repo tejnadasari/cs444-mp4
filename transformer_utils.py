@@ -15,17 +15,14 @@ class SelfAttention(nn.Module):
         self.softmax = nn.Softmax(dim=2)
 
     def forward(self, x):
-        Q = self.W_query(x)
-        K = self.W_key(x)
-        V = self.W_value(x)
+        queries = self.W_query(x)
+        keys = self.W_key(x)
+        values = self.W_value(x)
 
-        scale = torch.sqrt(torch.tensor(self.query_dim, dtype=torch.float32))
+        scaling_factor = torch.sqrt(torch.tensor(self.query_dim, dtype=torch.float32))
+        output = torch.bmm(self.softmax(torch.bmm(queries, keys.transpose(1, 2)) / scaling_factor), values)
 
-        attention_scores = torch.bmm(Q, K.transpose(1, 2)) / scale
-        attention_probs = self.softmax(attention_scores)
-        attn_output = torch.bmm(attention_probs, V)
-
-        return attn_output
+        return output
 
 
 class LayerNorm(nn.Module):
@@ -42,9 +39,6 @@ class LayerNorm(nn.Module):
     def forward(self, x: torch.Tensor):
         assert x.shape[-1] == self.input_dim
 
-        mean = x.mean(dim=-1, keepdim=True)
-        var = x.var(dim=-1, keepdim=True, unbiased=True)
-        x_norm = (x - mean) / torch.sqrt(var + self.eps)
-        out = self.w.view(1, 1, -1) * x_norm + self.b.view(1, 1, -1)
+        normalized_tensor = (x - (x.mean(dim=-1, keepdim=True))) / torch.sqrt((x.var(dim=-1, keepdim=True, unbiased=True)) + self.eps)
+        return self.w.view(1, 1, -1) * normalized_tensor + self.b.view(1, 1, -1)
 
-        return out
