@@ -32,7 +32,7 @@ class ViTLinear(nn.Module):
 
 
 class VPTDeep(nn.Module):
-    def __init__(self, num_classes, encoder_type, num_prompt_tokens=8):  # Increased to 8
+    def __init__(self, num_classes, encoder_type, num_prompt_tokens=10):  # Changed to 10 prompts per layer
         super(VPTDeep, self).__init__()
 
         self.encoder = get_encoder(encoder_type)
@@ -41,12 +41,14 @@ class VPTDeep(nn.Module):
             param.requires_grad = False
 
         num_encoder_layers = len(self.encoder.encoder.layers)
-        init_scale = np.sqrt(5.0 / float(768 + (num_prompt_tokens * 768)))  # Increased scale
+        hidden_dim = 768  # ViT hidden dimension
+        prompt_dim = num_prompt_tokens * hidden_dim
+        init_scale = np.sqrt(6.0 / float(hidden_dim + prompt_dim))  # Changed to 6.0 as suggested
 
         self.learnable_prompts = nn.Parameter(
-            torch.empty(1, num_encoder_layers, num_prompt_tokens, 768).uniform_(-init_scale, init_scale)
+            torch.empty(1, num_encoder_layers, num_prompt_tokens, hidden_dim).uniform_(-init_scale, init_scale)
         )
-        self.prompt_dropout_layer = nn.Dropout(0.12)  # Reduced dropout
+        self.prompt_dropout_layer = nn.Dropout(0.1)  # Adjusted dropout rate
         self.encoder.heads = nn.Linear(768, num_classes)
 
         nn.init.zeros_(self.encoder.heads.weight)
@@ -124,18 +126,19 @@ class Trainer():
                 {'params': model.learnable_prompts},
                 {'params': model.encoder.heads.parameters()}
             ]
+            # Updated hyperparameters as per suggestions
             self.optimizer = torch.optim.SGD(
                 params_to_optimize,
-                lr=0.009,
-                weight_decay=0.025,
+                lr=0.01,  # Changed from 0.009 to suggested 0.01
+                weight_decay=0.01,  # Changed from 0.025 to suggested 0.01
                 momentum=0.9
             )
 
             if scheduler == 'multi_step':
                 self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
                     self.optimizer,
-                    milestones=[45, 70, 85],
-                    gamma=0.25
+                    milestones=[60, 80],  # Learning rate drops at epochs 60 and 80
+                    gamma=0.1  # Changed to drop by factor of 10 (0.1)
                 )
         else:
             self.optimizer = torch.optim.SGD(
@@ -189,7 +192,7 @@ class Trainer():
         for epoch in pbar:
             train_loss, train_acc = self.train_epoch()
             val_loss, val_acc = self.val_epoch()
-            self.writer.add_scalar('lr', self.lr_scheduler.get_last_lr()[0], epoch)  # Fixed lr_schedule to lr_scheduler
+            self.writer.add_scalar('lr', self.lr_scheduler.get_last_lr()[0], epoch)
             self.writer.add_scalar('val_acc', val_acc, epoch)
             self.writer.add_scalar('val_loss', val_loss, epoch)
             self.writer.add_scalar('train_acc', train_acc, epoch)
@@ -199,6 +202,6 @@ class Trainer():
                 best_val_acc = val_acc
                 best_epoch = epoch
                 torch.save(self.model.state_dict(), model_file_name)
-            self.lr_scheduler.step()  # Fixed lr_schedule to lr_scheduler
+            self.lr_scheduler.step()
 
         return best_val_acc, best_epoch
