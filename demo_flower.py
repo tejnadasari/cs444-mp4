@@ -64,8 +64,7 @@ def main(_):
 
     writer = SummaryWriter(f'{dir_name}/lr{lr:0.6f}_wd{wd:0.6f}', flush_secs=10)
 
-
-    model = VPTDeep(num_classes=102, encoder_type=FLAGS.encoder, num_prompt_tokens=num_prompts)
+    model = net_class(num_classes=102, encoder_type=FLAGS.encoder, num_prompt_tokens=num_prompts)
     model.to(device)
 
     trainer = Trainer(model, train_dataloader, val_dataloader, writer,
